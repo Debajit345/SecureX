@@ -61,6 +61,10 @@ Vercel detects the FastAPI application exported from `app.py`; `requirements.txt
 - Community reports: category, optional note, timestamp, and matching report count.
 - Outbound requests reject local/private/reserved IP destinations and re-check redirect destinations. Checks have short timeouts and do not fetch page bodies.
 
+## Interface patterns
+
+SecureX uses custom motion and surface treatments inspired by Uiverse's [animated button](https://uiverse.io/ui/animated-buttons), [loader](https://uiverse.io/ui/loading-ui), and [card](https://uiverse.io/ui/card-components) collections. The scan action has a restrained light sweep, and report metrics and technical checks respond to hover. These are SecureX implementations with no Uiverse runtime dependency.
+
 This is a hackathon prototype. Add rate limiting, moderation/abuse controls, better DNS pinning, a proper threat-intelligence feed, and monitoring before public production use.
 
 SecureX also performs a best-effort hostname lookup against the public crt.sh Certificate Transparency search and reports the result as informational context. A missing result can be incomplete or delayed, and a logged certificate is not proof that a site is safe. The TLS connection itself is verified using Python's system trust store and hostname checks.
