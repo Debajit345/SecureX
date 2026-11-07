@@ -134,7 +134,7 @@ def auth_status():
         providers=settings.get("external",[])
         if isinstance(providers,dict): enabled=bool(providers.get("google"))
         else: enabled="google" in providers
-        return {"google_enabled":enabled,"message":"" if enabled else "Google sign-in is not enabled for SecureX yet. Please try again later."}
+        return {"google_enabled":enabled,"message":"" if enabled else "Google sign-in needs setup: enable Google in Supabase Auth with a Google Web OAuth client ID and secret, then allow https://securex-security.vercel.app as a redirect URL."}
     except Exception:
         return {"google_enabled":False,"message":"SecureX could not check sign-in availability. Please try again shortly."}
 

@@ -4,7 +4,7 @@ SecureX checks public HTTP/HTTPS URLs for basic phishing indicators, TLS certifi
 
 ## Live app
 
-Production: https://securex-github-debaxoid.vercel.app
+Production: https://securex-security.vercel.app
 
 The `Debajit345/SecureX` GitHub repository is connected to the `securex-github` Vercel project. Pushes to `main` trigger production deployments; pull requests get previews.
 
@@ -42,7 +42,7 @@ The reports table has RLS enabled. The public key can read report signals withou
 ### SecureX accounts, saved reports, and AI
 
 1. Apply `supabase/migrations/20261108000000_securex_saved_reports.sql` after the community reports migration.
-2. In Supabase Auth, enable Google and configure the Google OAuth client ID/secret and redirect URLs for the Supabase callback and SecureX production/preview URLs.
+2. In Google Cloud, create a Web OAuth client. Add `https://securex-security.vercel.app` as an authorized JavaScript origin and the Supabase project's `/auth/v1/callback` URL as an authorized redirect URI. In Supabase Auth, enable Google with that client ID/secret and add `https://securex-security.vercel.app/**` to the allowed redirect URLs.
 3. Set `SUPABASE_SERVICE_ROLE_KEY` as a server-only Vercel environment variable. Never expose it in frontend code. The API verifies Google/Supabase sessions before saving user history or returning private reports.
 4. After the administrator signs in with `debaxoid@gmail.com`, set that account's Supabase Auth UUID as `SECUREX_ADMIN_USER_ID` in Vercel. Admin endpoints compare the verified Auth ID; they do not trust UI state or a caller-provided email.
 5. Optionally configure `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` in Vercel to enable on-demand report summaries. The token stays server-side.
