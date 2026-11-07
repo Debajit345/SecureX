@@ -14,7 +14,14 @@ def db_request(method: str, table: str, *, params=None, payload=None, prefer=Non
     url = f"{base}/rest/v1/{table}"
     if params:
         url += "?" + urlencode(params)
-    headers = {"apikey": key, "Authorization": f"Bearer {token or key}", "Content-Type": "application/json"}
+    headers = {"apikey": key, "Content-Type": "application/json"}
+    # New Supabase secret keys are opaque API keys, not JWTs. Sending one as a
+    # Bearer token makes Supabase try to parse it as a JWT and reject the call.
+    # Keep Bearer auth for user JWTs and legacy service_role JWT keys.
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    elif not (privileged and key.startswith("sb_secret_")):
+        headers["Authorization"] = f"Bearer {key}"
     if prefer:
         headers["Prefer"] = prefer
     body = json.dumps(payload).encode() if payload is not None else None
@@ -46,7 +53,10 @@ def admin_users(page=1, per_page=100):
     key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
     if not base or not key:
         raise RuntimeError("Supabase server credentials are not configured.")
-    request = Request(f"{base}/auth/v1/admin/users?page={page}&per_page={per_page}", headers={"apikey": key, "Authorization": f"Bearer {key}"})
+    headers = {"apikey": key}
+    if not key.startswith("sb_secret_"):
+        headers["Authorization"] = f"Bearer {key}"
+    request = Request(f"{base}/auth/v1/admin/users?page={page}&per_page={per_page}", headers=headers)
     try:
         with urlopen(request, timeout=10) as response:
             return json.loads(response.read(1_000_000)).get("users", [])
