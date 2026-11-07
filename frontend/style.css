@@ -87,6 +87,9 @@ nav a {
 }
 nav a:hover { color: var(--text); }
 main { max-width: 960px; margin: auto; padding: 96px 28px 48px; }
+.report-page main { padding-top: 58px; }
+.report-page h1 { margin: 14px 0 22px; font-size: clamp(38px, 4.5vw, 54px); line-height: 1.08; letter-spacing: -.07em; }
+.report-page #report-detail { min-height: 380px; }
 .hero { max-width: 700px; margin: 0 auto 72px; text-align: center; animation: hero-enter .72s cubic-bezier(.2,.75,.25,1) both; }
 .eyebrow {
   color: var(--muted);
@@ -248,6 +251,16 @@ button:disabled { opacity: .45; cursor: not-allowed; transform: none; box-shadow
 .finding { padding: 16px 0; border-top: 1px solid var(--line); animation: rise-in .38s ease both; }
 .finding strong { font-size: 13px; font-weight: 590; }
 .finding p { margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.assessment { margin: 21px 0 22px; padding: 18px 19px; border: 1px solid rgba(184,225,200,.16); border-radius: 13px; background: linear-gradient(140deg, rgba(184,225,200,.055), rgba(255,255,255,.012)); }
+.assessment-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.assessment h3 { margin: 0; font-size: 13px; }
+.assessment-tag { padding: 5px 8px; border: 1px solid rgba(184,225,200,.18); border-radius: 99px; color: var(--accent); font-size: 9px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; }
+.assessment-copy { margin: 12px 0 14px; color: var(--text); font-size: 12px; line-height: 1.75; }
+.assessment-next { display: grid; gap: 4px; margin: 0; color: var(--muted); font-size: 11px; line-height: 1.65; }
+.assessment-next strong { color: var(--accent); font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: .07em; }
+.assessment-counts, .assessment-method, .assessment-limit { margin: 11px 0 0; color: var(--quiet); font-size: 10px; line-height: 1.65; }
+.assessment-method { color: var(--muted); }
+.assessment-limit { padding-top: 10px; border-top: 1px solid rgba(255,255,255,.06); }
 .pill { display: inline-flex; margin-right: 9px; color: var(--accent); font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: .08em; }
 .pill[data-severity="high"] { color: var(--danger); }
 .pill[data-severity="medium"] { color: var(--warn); }

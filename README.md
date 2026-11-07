@@ -39,14 +39,12 @@ The API health endpoint is `/api/health`.
 
 The reports table has RLS enabled. The public key can read report signals without notes and submit category validated reports. Community reports are unverified and the UI says so.
 
-### SecureX accounts, saved reports, and AI
+### SecureX accounts and saved reports
 
 1. Apply `supabase/migrations/20261108000000_securex_saved_reports.sql` after the community reports migration.
 2. In Google Cloud, create a Web OAuth client. Add `https://securex-security.vercel.app` as an authorized JavaScript origin and the Supabase project's `/auth/v1/callback` URL as an authorized redirect URI. In Supabase Auth, enable Google with that client ID/secret and add `https://securex-security.vercel.app/**` to the allowed redirect URLs.
 3. Set `SUPABASE_SERVICE_ROLE_KEY` as a sensitive, server-only Vercel environment variable in all environments. It may contain a current `sb_secret_…` API key or a legacy `service_role` JWT. Never expose it in frontend code. The API verifies Google/Supabase sessions before saving user history or returning private reports.
 4. After the administrator signs in with `debaxoid@gmail.com`, set that account's Supabase Auth UUID as `SECUREX_ADMIN_USER_ID` in Vercel. Admin endpoints compare the verified Auth ID; they do not trust UI state or a caller-provided email.
-5. Optionally configure `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` in Vercel to enable on-demand report summaries. The token stays server-side. When these are absent, the report page explains that AI summaries are unavailable.
-
 Scan results are compressed and cached for 15 minutes. The shared cache contains technical scan evidence but no account owner or community notes. Saved report references are private and tied to the authenticated Supabase user. `/reports.html`, `/report.html?id=…`, and `/admin.html` provide report history, report details, and administrator data respectively.
 
 ## Vercel deployment
@@ -60,6 +58,7 @@ Vercel detects the FastAPI application exported from `app.py`; `requirements.txt
 - Web response: status, redirects, and selected security response headers.
 - Community reports: category, optional note, timestamp, and matching report count.
 - Outbound requests reject local/private/reserved IP destinations and re-check redirect destinations. Checks have short timeouts and do not fetch page bodies.
+- Risk scoring is deterministic: high findings add 35 points, medium 18, and low 7, capped at 100. This is a weighted signal score, not a probability. The report explains which checks ran and when evidence is incomplete.
 
 ## Interface patterns
 
