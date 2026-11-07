@@ -4,6 +4,6 @@ version = "0.1.0"
 description = "Explainable website threat checks and community reporting"
 requires-python = ">=3.12"
 dependencies = [
-  "fastapi==0.121.0",
+  "fastapi==0.162.0",
   "uvicorn[standard]==0.38.0",
 ]
