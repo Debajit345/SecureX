@@ -5,5 +5,5 @@ description = "Explainable website threat checks and community reporting"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi==0.121.0",
-  "uvicorn[standard]==0.38.0",
+  "uvicorn[standard]==0.54.0",
 ]
