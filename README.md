@@ -2,6 +2,12 @@
 
 SecureX checks public HTTP/HTTPS URLs for basic phishing indicators, TLS certificate status, selected security headers, redirects, and community reports. Results are explainable signals, not a guarantee that a website is safe.
 
+## Live app
+
+Production: https://securex-github-debaxoid.vercel.app
+
+The `Debajit345/SecureX` GitHub repository is connected to the `securex-github` Vercel project. Pushes to `main` trigger production deployments; pull requests get previews.
+
 ## Local development
 
 Requires Python 3.11+. The local runner uses only the Python standard library, so it can run without network access.
@@ -35,7 +41,7 @@ The reports table has RLS enabled. The public key can read report signals withou
 
 ## Vercel deployment
 
-Import this project directory (`Projects/SecureX`) as the Vercel project root and deploy. Vercel detects the FastAPI application exported from `app.py`; `requirements.txt` is at the project root so its Python runtime can install the dependencies. Add the two Supabase environment variables in Vercel project settings, then redeploy.
+Vercel detects the FastAPI application exported from `app.py`; `requirements.txt` is at the project root so its Python runtime can install the dependencies. Configure `SUPABASE_URL` and `SUPABASE_ANON_KEY` for production, preview, and development environments.
 
 ## Included checks and limits
 
