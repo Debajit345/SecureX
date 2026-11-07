@@ -121,6 +121,23 @@ def health():
 def public_config():
     return {"url":os.getenv("SUPABASE_URL", ""),"anon_key":os.getenv("SUPABASE_ANON_KEY", "")}
 
+@app.get("/api/auth/status")
+def auth_status():
+    """Return a safe provider readiness signal so disabled OAuth never dumps raw auth errors to visitors."""
+    base=os.getenv("SUPABASE_URL","").rstrip("/")
+    key=os.getenv("SUPABASE_ANON_KEY","")
+    if not base or not key:
+        return {"google_enabled":False,"message":"Sign-in is temporarily unavailable because authentication is not configured."}
+    try:
+        req=Request(f"{base}/auth/v1/settings",headers={"apikey":key})
+        with urlopen(req,timeout=5) as response: settings=json.loads(response.read(100_000))
+        providers=settings.get("external",[])
+        if isinstance(providers,dict): enabled=bool(providers.get("google"))
+        else: enabled="google" in providers
+        return {"google_enabled":enabled,"message":"" if enabled else "Google sign-in is not enabled for SecureX yet. Please try again later."}
+    except Exception:
+        return {"google_enabled":False,"message":"SecureX could not check sign-in availability. Please try again shortly."}
+
 @app.post("/api/scan")
 def scan(body: ScanRequest, authorization: str | None = Header(default=None)):
     try:
@@ -154,8 +171,9 @@ def scan(body: ScanRequest, authorization: str | None = Header(default=None)):
             try:
                 user, _ = current_user(authorization)
                 saved_id = save_history(user["id"], key)
-            except HTTPException:
-                pass
+            except Exception:
+                # A secondary account-history write must never discard a completed scan.
+                report.setdefault("errors", []).append("Could not save this scan to account history.")
         cache_saved = not cache_error
         return {**report,"cache_id":key if cache_saved else None,"cache_saved":cache_saved,"cached":cached,"cache_age_seconds":max(0,int((now-datetime.fromisoformat(report['scanned_at'].replace('Z','+00:00'))).total_seconds())),"saved_report_id":saved_id}
     except HTTPException:
@@ -178,12 +196,15 @@ def save_report(body: SaveRequest, authorization: str | None = Header(default=No
 def list_saved_reports(authorization: str | None = Header(default=None)):
     user, _ = current_user(authorization)
     rows = db_request("GET", "saved_reports", params={"user_id":f"eq.{user['id']}","select":"id,cache_id,created_at","order":"created_at.desc","limit":"100"}, privileged=True)
+    keys=sorted({row["cache_id"] for row in rows})
     output=[]
-    for row in rows:
-        cache=db_request("GET","scan_cache",params={"id":f"eq.{row['cache_id']}","select":"report_gzip","limit":"1"},privileged=True)
-        if cache:
-            report=unpack_report(cache[0]["report_gzip"])
-            output.append({"id":row["id"],"created_at":row["created_at"],"url":report["url"],"risk":report["risk"],"score":report["score"]})
+    if keys:
+        cache_rows=db_request("GET","scan_cache",params={"id":f"in.({','.join(keys)})","select":"id,report_gzip"},privileged=True)
+        cache_by_id={item["id"]:unpack_report(item["report_gzip"]) for item in cache_rows}
+        for row in rows:
+            report=cache_by_id.get(row["cache_id"])
+            if report:
+                output.append({"id":row["id"],"created_at":row["created_at"],"url":report["url"],"risk":report["risk"],"score":report["score"]})
     return {"reports":output}
 
 @app.get("/api/saved-reports/{report_id}")
