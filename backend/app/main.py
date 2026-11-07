@@ -2,8 +2,9 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 import base64, gzip, hashlib, json, os, re
+import logging
 
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.staticfiles import StaticFiles
@@ -18,6 +19,7 @@ from backend.app.storage import db_request, auth_user, admin_users
 ROOT = Path(__file__).resolve().parents[2]
 FRONTEND = ROOT / "frontend"
 app = FastAPI(title="SecureX", version="0.2.0")
+logger = logging.getLogger("securex.ai")
 
 class ScanRequest(BaseModel):
     url: str = Field(min_length=1, max_length=2048)
@@ -234,9 +236,37 @@ def summary(report_id: str, authorization: str | None = Header(default=None)):
     payload={"messages":[{"role":"system","content":"Summarize website security scan evidence for a non-expert in 3 concise sentences. Do not claim a site is safe; mention uncertainty and cite only supplied facts."},{"role":"user","content":json.dumps(safe)}],"max_tokens":180,"temperature":0.2}
     try:
         req=Request(url,data=json.dumps(payload).encode(),headers={"Authorization":f"Bearer {token}","Content-Type":"application/json"})
-        with urlopen(req,timeout=20) as response: result=json.loads(response.read(100_000))
-        return {"summary":result.get("result",{}).get("response","Summary unavailable.")}
+        with urlopen(req,timeout=25) as response: result=json.loads(response.read(100_000))
+        if not result.get("success", False):
+            codes=[str(item.get("code", "unknown")) for item in result.get("errors", []) if isinstance(item, dict)]
+            logger.warning("Workers AI returned an unsuccessful response; codes=%s", ",".join(codes[:5]) or "unknown")
+            raise HTTPException(502,"The AI provider could not generate a summary. Please try again shortly.")
+        summary_text=result.get("result",{}).get("response")
+        if not isinstance(summary_text,str) or not summary_text.strip():
+            logger.warning("Workers AI returned no summary text")
+            raise HTTPException(502,"The AI provider returned an empty summary. Please try again.")
+        return {"summary":summary_text.strip()}
+    except HTTPException:
+        raise
+    except HTTPError as exc:
+        logger.warning("Workers AI request failed with HTTP %s", exc.code)
+        if exc.code in (401, 403):
+            detail="The AI provider rejected its credentials. Check the Cloudflare token and Workers AI permissions."
+        elif exc.code == 404:
+            detail="The AI model endpoint was not found. Check the Cloudflare account ID and model configuration."
+        elif exc.code == 429:
+            detail="The AI provider is rate limited. Please wait a moment and try again."
+        else:
+            detail="The AI provider is temporarily unavailable. Please try again shortly."
+        raise HTTPException(503,detail) from exc
+    except (TimeoutError, URLError) as exc:
+        logger.warning("Workers AI request timed out or could not connect: %s", type(exc).__name__)
+        raise HTTPException(504,"The AI summary took too long to respond. Please try again.") from exc
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        logger.warning("Workers AI returned an invalid response: %s", type(exc).__name__)
+        raise HTTPException(502,"The AI provider returned an invalid response. Please try again.") from exc
     except Exception as exc:
+        logger.exception("Unexpected Workers AI summary failure")
         raise HTTPException(503,"AI summary is temporarily unavailable.") from exc
 
 @app.get("/api/admin/overview")
