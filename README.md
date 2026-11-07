@@ -35,7 +35,8 @@ The API health endpoint is `/api/health`.
 
 1. Create a Supabase project.
 2. Run `supabase/migrations/20261107000000_create_reports.sql` in the Supabase SQL Editor (or apply it with the Supabase CLI after linking the project).
-3. Add `SUPABASE_URL` and `SUPABASE_ANON_KEY` as Vercel project environment variables for Production, Preview, and Development. `SUPABASE_ANON_KEY` accepts a current Supabase publishable key or a legacy `anon` key. The public role can read report signals (without notes) and submit validated reports; RLS is enabled.
+3. Run the remaining migrations in timestamp order, including `20261108120000_robustness_and_moderation.sql`, to enable private rate limits and the community review queue.
+4. Add `SUPABASE_URL` and `SUPABASE_ANON_KEY` as Vercel project environment variables for Production, Preview, and Development. `SUPABASE_ANON_KEY` accepts a current Supabase publishable key or a legacy `anon` key. The public role can read approved report signals (without notes) and submit validated reports; RLS is enabled.
 
 The reports table has RLS enabled. The public key can read report signals without notes and submit category validated reports. Community reports are unverified and the UI says so.
 

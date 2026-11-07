@@ -1,6 +1,8 @@
 """URL normalization and public-network guard for outbound probes."""
 import ipaddress
 import socket
+import ssl
+import http.client
 from urllib.parse import urlsplit, urlunsplit
 
 
@@ -29,7 +31,7 @@ def normalize_url(value: str) -> str:
     return urlunsplit((parts.scheme.lower(), authority, parts.path or "/", parts.query, ""))
 
 
-def ensure_public_host(host: str) -> None:
+def resolve_public_host(host: str) -> list[str]:
     try:
         addresses = [ipaddress.ip_address(host)]
     except ValueError:
@@ -39,3 +41,51 @@ def ensure_public_host(host: str) -> None:
             raise ValueError("The website hostname could not be resolved.") from exc
     if not addresses or any(not ip.is_global for ip in addresses):
         raise ValueError("Private, local, and reserved network addresses cannot be scanned.")
+    return sorted({str(ip) for ip in addresses})
+
+
+def ensure_public_host(host: str) -> None:
+    resolve_public_host(host)
+
+
+class PinnedHTTPConnection(http.client.HTTPConnection):
+    """Connect to a validated IP while retaining the hostname for Host/SNI."""
+    def __init__(self, host: str, port: int, address: str, timeout: float):
+        super().__init__(host, port, timeout=timeout)
+        self.address = address
+
+    def connect(self):
+        self.sock = socket.create_connection((self.address, self.port), self.timeout)
+
+
+class PinnedHTTPSConnection(PinnedHTTPConnection):
+    def __init__(self, host: str, port: int, address: str, timeout: float):
+        super().__init__(host, port, address, timeout)
+        self.context = ssl.create_default_context()
+
+    def connect(self):
+        raw = socket.create_connection((self.address, self.port), self.timeout)
+        self.sock = self.context.wrap_socket(raw, server_hostname=self.host)
+
+
+def pinned_request(url: str, timeout: float = 5):
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    port = parts.port or (443 if parts.scheme == "https" else 80)
+    addresses = resolve_public_host(host)
+    last_error = None
+    for address in addresses:
+        conn_type = PinnedHTTPSConnection if parts.scheme == "https" else PinnedHTTPConnection
+        conn = conn_type(host, port, address, timeout)
+        path = parts.path or "/"
+        if parts.query:
+            path += "?" + parts.query
+        try:
+            conn.request("GET", path, headers={"Host": parts.netloc, "User-Agent": "SecureX-Safety-Checker/1.0", "Connection": "close"})
+            return conn, conn.getresponse()
+        except OSError as exc:
+            last_error = exc
+            conn.close()
+    if last_error:
+        raise last_error
+    raise ValueError("No public address was available for the website host.")

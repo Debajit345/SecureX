@@ -4,7 +4,7 @@ from urllib.parse import urlsplit
 import json
 from urllib.parse import urlencode
 from urllib.request import urlopen
-from .target import ensure_public_host
+from .target import resolve_public_host
 
 
 def inspect_tls(url: str) -> dict:
@@ -12,14 +12,21 @@ def inspect_tls(url: str) -> dict:
     host = p.hostname or ""
     if p.scheme != "https":
         return {"available": False, "findings": [{"severity": "medium", "title": "No TLS certificate", "detail": "This URL uses HTTP."}]}
-    ensure_public_host(host)
     port = p.port or 443
     ctx = ssl.create_default_context()
-    with socket.create_connection((host, port), timeout=5) as raw:
-        with ctx.wrap_socket(raw, server_hostname=host) as conn:
-            cert = conn.getpeercert()
-            cipher = conn.cipher()
-            tls_version = conn.version()
+    last_error = None
+    for address in resolve_public_host(host):
+        try:
+            with socket.create_connection((address, port), timeout=5) as raw:
+                with ctx.wrap_socket(raw, server_hostname=host) as conn:
+                    cert = conn.getpeercert()
+                    cipher = conn.cipher()
+                    tls_version = conn.version()
+            break
+        except OSError as exc:
+            last_error = exc
+    else:
+        raise last_error or ValueError("Could not connect to a validated public address.")
     expiry = datetime.strptime(cert["notAfter"], "%b %d %H:%M:%S %Y %Z").replace(tzinfo=timezone.utc)
     days = (expiry - datetime.now(timezone.utc)).days
     findings = []

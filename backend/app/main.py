@@ -4,7 +4,7 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 import base64, gzip, hashlib, json, os, re
 
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -29,6 +29,9 @@ class ReportRequest(BaseModel):
 class SaveRequest(BaseModel):
     cache_id: str = Field(min_length=64, max_length=64)
 
+class ModerationRequest(BaseModel):
+    status: str = Field(pattern="^(approved|rejected|pending)$")
+
 CATEGORIES = {"phishing", "impersonation", "payment scam", "malware", "other"}
 
 def current_user(authorization):
@@ -40,6 +43,19 @@ def current_user(authorization):
 
 def cache_key(url):
     return hashlib.sha256(url.encode()).hexdigest()
+
+def enforce_rate_limit(request: Request, bucket: str, limit: int, window_seconds: int):
+    forwarded = request.headers.get("x-real-ip", "").strip() or request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
+    peer = forwarded or (request.client.host if request.client else "unknown")
+    subject = hashlib.sha256(peer.encode()).hexdigest()
+    try:
+        allowed = db_request("POST", "rpc/securex_take_rate_limit", payload={
+            "p_subject": subject, "p_bucket": bucket, "p_limit": limit, "p_window_seconds": window_seconds
+        }, privileged=True)
+    except Exception as exc:
+        raise HTTPException(503, "SecureX abuse protection is temporarily unavailable.") from exc
+    if not allowed:
+        raise HTTPException(429, "Too many requests. Please wait and try again.", headers={"Retry-After": str(window_seconds)})
 
 def compress_report(report):
     return base64.b64encode(gzip.compress(json.dumps(report, separators=(",", ":")).encode())).decode()
@@ -73,26 +89,36 @@ def perform_scan(url):
     findings = analyze_url(url)
     web = tls = None
     errors = []
+    checks = {"url": {"status":"passed", "detail":"URL pattern checks completed."},
+              "web": {"status":"unavailable", "detail":"Web response check did not complete."},
+              "tls": {"status":"unavailable", "detail":"TLS check did not complete."},
+              "community": {"status":"unavailable", "detail":"Community reports could not be loaded."}}
     try:
         web = inspect_site(url)
+        checks["web"] = {"status":"passed", "detail":f"HTTP response {web['status_code']} received; {len(web['redirects'])} redirects followed."}
         findings.extend(web["findings"])
         if web["final_url"] != url:
             findings.append({"severity":"info", "title":"Website redirected", "detail":f"Final destination: {web['final_url']}"})
     except Exception as exc:
         errors.append("Web response check: " + str(exc)[:160])
+        checks["web"] = {"status":"failed", "detail":str(exc)[:160]}
     try:
         tls = inspect_tls(url)
+        checks["tls"] = {"status":"passed" if tls.get("available") else "failed", "detail":"TLS certificate and protocol inspection completed."}
         findings.extend(tls.get("findings", []))
         ct = tls.get("certificate_transparency", {})
         if ct.get("available"):
             findings.append({"severity":"info", "title":"Certificate Transparency lookup", "detail":f"crt.sh returned {ct['logged_certificates']} certificate entries; exact hostname listed: {'yes' if ct['hostname_seen'] else 'no'}. CT presence is not a safety verdict."})
     except Exception as exc:
         errors.append("TLS check: " + str(exc)[:160])
+        checks["tls"] = {"status":"failed", "detail":str(exc)[:160]}
     try:
         reports = db_request("GET", "reports", params={"url":f"eq.{url}","select":"category,created_at","order":"created_at.desc","limit":"100"})
+        checks["community"] = {"status":"passed", "detail":f"{len(reports)} user-submitted reports checked."}
     except Exception as exc:
         reports = []
         errors.append("Community intelligence unavailable: " + str(exc)[:160])
+        checks["community"] = {"status":"unavailable", "detail":"Community reports could not be loaded."}
     if reports:
         cats = sorted({r["category"] for r in reports})
         findings.append({"severity":"high" if len(reports) >= 3 else "medium", "title":f"Community reports ({len(reports)})", "detail":"Reported categories: " + ", ".join(cats) + ". Reports are user-submitted and unverified."})
@@ -100,7 +126,8 @@ def perform_scan(url):
     return {"url":url, "scanned_at":datetime.now(timezone.utc).isoformat(), "score":score,
         "risk":"High risk" if score >= 50 else "Caution" if score >= 20 else "Low indicators found",
         "posture":posture(tls, web), "findings":findings, "tls":tls, "web":web,
-        "community_reports":reports, "errors":errors}
+        "community_reports":reports, "errors":errors, "checks":checks,
+        "scoring":{"method":"weighted-severity-v1","weights":{"high":35,"medium":18,"low":7},"maximum":100}}
 
 def save_history(user_id, key):
     rows = db_request("POST", "saved_reports", payload={"user_id":user_id,"cache_id":key}, prefer="return=representation", privileged=True)
@@ -141,8 +168,9 @@ def auth_status():
         return {"google_enabled":False,"message":"SecureX could not check sign-in availability. Please try again shortly."}
 
 @app.post("/api/scan")
-def scan(body: ScanRequest, authorization: str | None = Header(default=None)):
+def scan(body: ScanRequest, request: Request, authorization: str | None = Header(default=None)):
     try:
+        enforce_rate_limit(request, "scan", 20, 3600)
         url = normalize_url(body.url)
         ensure_public_host(urlsplit(url).hostname or "")
         key = cache_key(url)
@@ -226,18 +254,34 @@ def admin_overview(authorization: str | None = Header(default=None)):
     users=admin_users()
     histories=db_request("GET","saved_reports",params={"select":"id,user_id,cache_id,created_at","order":"created_at.desc","limit":"100"},privileged=True)
     cache=db_request("GET","scan_cache",params={"select":"id,scanned_at","order":"scanned_at.desc","limit":"100"},privileged=True)
-    reports=db_request("GET","reports",params={"select":"id,url,category,note,created_at","order":"created_at.desc","limit":"100"},privileged=True)
+    reports=db_request("GET","reports",params={"select":"id,url,category,note,moderation_status,created_at","order":"created_at.desc","limit":"100"},privileged=True)
     safe_users=[{"id":u.get("id"),"email":u.get("email"),"created_at":u.get("created_at"),"last_sign_in_at":u.get("last_sign_in_at")} for u in users]
     return {"users":safe_users,"saved_reports":histories,"cache":cache,"community_reports":reports}
 
+@app.patch("/api/admin/reports/{report_id}/moderation")
+def moderate_report(report_id: int, body: ModerationRequest, authorization: str | None = Header(default=None)):
+    user, _ = current_user(authorization)
+    admin_id=os.getenv("SECUREX_ADMIN_USER_ID", "")
+    if not admin_id or user["id"] != admin_id:
+        raise HTTPException(403, "Admin access required.")
+    rows=db_request("PATCH", "reports", params={"id":f"eq.{report_id}","select":"id,moderation_status"},
+                    payload={"moderation_status":body.status}, prefer="return=representation", privileged=True)
+    if not rows:
+        raise HTTPException(404, "Community report not found.")
+    return {"ok":True,"report":rows[0]}
+
 @app.post("/api/reports", status_code=201)
-def submit_report(body: ReportRequest):
+def submit_report(body: ReportRequest, request: Request):
     try:
+        enforce_rate_limit(request, "report", 5, 3600)
         url=normalize_url(body.url); ensure_public_host(urlsplit(url).hostname or "")
         category=body.category.strip().lower()
         if category not in CATEGORIES: raise HTTPException(422,"Choose a listed report category.")
+        duplicate=db_request("GET","reports",params={"url":f"eq.{url}","category":f"eq.{category}","moderation_status":"in.(pending,approved)","select":"id","limit":"1"},privileged=True)
+        if duplicate:
+            return {"ok":True,"duplicate":True,"message":"A matching report is already in the community review queue."}
         db_request("POST","reports",payload={"url":url,"category":category,"note":" ".join(body.note.split())},prefer="return=minimal")
-        return {"ok":True,"message":"Report received. Community reports are not independently verified."}
+        return {"ok":True,"message":"Report received and queued for community review."}
     except HTTPException: raise
     except Exception as exc: raise HTTPException(503,"Could not submit report.") from exc
 
