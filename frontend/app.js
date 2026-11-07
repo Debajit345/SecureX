@@ -1,71 +1,13 @@
-const $ = (selector) => document.querySelector(selector);
-const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
-  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-}[char]));
-const offlineDemo = location.protocol === 'file:' || new URLSearchParams(location.search).has('demo');
-if (offlineDemo) $('#demo-banner').classList.remove('hidden');
-
-async function post(path, data) {
-  const response = await fetch(path, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data)
-  });
-  const payload = await response.json();
-  if (!response.ok) throw new Error(payload.detail || 'Request failed');
-  return payload;
-}
-function demoScan(raw) {
-  let url;
-  try { url = new URL(raw.includes('://') ? raw : `https://${raw}`); }
-  catch { throw new Error('Enter a valid website URL.'); }
-  if (!['http:', 'https:'].includes(url.protocol) || !url.hostname.includes('.')) throw new Error('Enter a valid public website URL.');
-  const reports = JSON.parse(localStorage.getItem('securex-demo-reports') || '[]').filter((item) => item.url === url.origin);
-  const findings = [];
-  if (url.protocol !== 'https:') findings.push({ severity: 'medium', title: 'Connection does not use HTTPS', detail: 'The URL uses HTTP, so traffic is not protected by TLS.' });
-  const labels = url.hostname.split('.');
-  const label = labels.length > 1 ? labels[labels.length - 2] : url.hostname;
-  const brands = ['google', 'microsoft', 'apple', 'amazon', 'paypal', 'facebook', 'instagram', 'netflix', 'linkedin'];
-  if (brands.some((brand) => label !== brand && label.replaceAll('-', '').length > 3 && (brand.includes(label.replaceAll('-', '')) || label.replaceAll('-', '').includes(brand)))) findings.push({ severity: 'medium', title: 'Possible brand lookalike', detail: 'The domain resembles a well-known brand. This demo heuristic can produce false positives.' });
-  if (/login|verify|secure|account|payment|password|wallet/i.test(url.href)) findings.push({ severity: 'low', title: 'Sensitive-action wording in URL', detail: 'This URL contains wording commonly used in account or payment flows. This is a weak signal.' });
-  if (reports.length) findings.push({ severity: reports.length >= 3 ? 'high' : 'medium', title: `Community reports (${reports.length})`, detail: 'Categories: ' + [...new Set(reports.map((r) => r.category))].join(', ') + '. These local demo reports are not verified.' });
-  findings.push({ severity: 'info', title: 'Live certificate and security checks unavailable', detail: 'Offline demo mode does not contact websites, inspect TLS, or query Certificate Transparency.' });
-  const score = Math.min(100, findings.reduce((sum, finding) => sum + ({ high: 35, medium: 18, low: 7 }[finding.severity] || 0), 0));
-  return { url: url.origin + url.pathname, scanned_at: new Date().toISOString(), score, risk: score >= 50 ? 'High risk' : score >= 20 ? 'Caution' : 'Low indicators found', findings, errors: [] };
-}
-
-$('#scan-form').addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const box = $('#result');
-  box.classList.remove('hidden');
-  box.innerHTML = '<p>Checking URL, certificate, response headers, and community signals…</p>';
-  try {
-    const report = offlineDemo ? demoScan($('#url').value) : await post('/api/scan', { url: $('#url').value });
-    const findings = report.findings.length
-      ? report.findings.map((finding) => `<div class="finding"><span class="pill">${esc(finding.severity)}</span><strong>${esc(finding.title)}</strong><p>${esc(finding.detail)}</p></div>`).join('')
-      : '<div class="finding"><strong>No notable indicators from available checks.</strong><p>A low score does not guarantee a site is safe.</p></div>';
-    const errors = (report.errors || []).map((message) => `<div class="finding error">${esc(message)}</div>`).join('');
-    box.innerHTML = `<div class="result-head"><div><div class="eyebrow">${esc(report.risk)}</div><h2>${esc(report.url)}</h2><div class="micro">${offlineDemo ? 'Illustrative demo' : 'Scanned'} · ${new Date(report.scanned_at).toLocaleString()}</div></div><div class="score">Risk score ${report.score}/100</div></div>${findings}${errors}<button id="copy-summary" type="button">Copy report summary</button>`;
-    $('#copy-summary').onclick = () => navigator.clipboard?.writeText(`SecureX: ${report.risk} (${report.score}/100) — ${report.url}\n${report.findings.map((item) => `• ${item.title}: ${item.detail}`).join('\n')}`);
-  } catch (error) {
-    box.innerHTML = `<div class="error">${esc(error.message)}</div>`;
-  }
-});
-
-$('#report-form').addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const form = new FormData(event.currentTarget);
-  const data = { url: form.get('url'), category: form.get('category'), note: form.get('note') };
-  try {
-    if (offlineDemo) {
-      const url = new URL(data.url.includes('://') ? data.url : `https://${data.url}`);
-      if (!['http:', 'https:'].includes(url.protocol) || !url.hostname.includes('.')) throw new Error('Enter a valid website URL.');
-      const reports = JSON.parse(localStorage.getItem('securex-demo-reports') || '[]');
-      reports.push({ url: url.origin, category: data.category, note: data.note, created_at: new Date().toISOString() });
-      localStorage.setItem('securex-demo-reports', JSON.stringify(reports));
-      alert('Saved in this browser’s offline demo only.');
-    } else {
-      const result = await post('/api/reports', data);
-      alert(result.message);
-    }
-    event.currentTarget.reset();
-  } catch (error) { alert(error.message); }
-});
+const $=s=>document.querySelector(s), esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let sb, session, latest;
+async function initAuth(){try{const c=await fetch('/api/config').then(r=>r.json());if(window.supabase?.createClient&&c.url&&c.anon_key){sb=window.supabase.createClient(c.url,c.anon_key);({data:{session}}=await sb.auth.getSession());sb.auth.onAuthStateChange((_e,s)=>{session=s;showUser();savePending()})}}catch{} showUser();await savePending()}
+async function savePending(){if(!session)return;const raw=sessionStorage.getItem('securex_pending_save');if(!raw)return;try{const r=JSON.parse(raw);const out=await req('/api/saved-reports',{cache_id:r.cache_id});sessionStorage.removeItem('securex_pending_save');r.saved_report_id=out.id;latest=r;if($('#result'))renderReport($('#result'),r)}catch(e){console.warn(e)}}
+function showUser(){const email=$('#user-email'),btn=$('#auth-button');if(!btn)return;email.textContent=session?.user?.email||'';btn.textContent=session?'Sign out':'Sign in with Google';btn.onclick=async()=>{if(!sb){alert('Google sign-in is not configured yet.');return}if(session)await sb.auth.signOut();else await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin}})}}
+async function req(path,data,method='POST'){const r=await fetch(path,{method,headers:{'Content-Type':'application/json',...(session?.access_token?{Authorization:`Bearer ${session.access_token}`}:{})},...(data?{body:JSON.stringify(data)}:{})});const j=await r.json();if(!r.ok)throw Error(j.detail||'Request failed');return j}
+function renderReport(box,r,details=false){const riskClass=r.risk==='High risk'?'risk-high':r.risk==='Caution'?'risk-caution':'';const findingHtml=(r.findings||[]).map(f=>`<div class="finding"><span class="pill">${esc(f.severity)}</span><strong>${esc(f.title)}</strong><p>${esc(f.detail)}</p></div>`).join('')||'<div class="finding"><strong>No notable indicators found.</strong><p>A low risk score does not guarantee that a website is safe.</p></div>';let detail='';if(details){const checks=r.posture?.checks||[];detail=`<div class="metric-row"><div class="metric"><div class="eyebrow">Risk score · higher means more risk</div><strong class="${riskClass}">${r.score}/100</strong><small>${esc(r.risk)}</small></div><div class="metric"><div class="eyebrow">Security posture · observed checks only</div><strong>${r.posture?.score==null?'Unavailable':`${r.posture.score}/100`}</strong><small>${r.posture?.passed||0} of ${r.posture?.total||0} checks passed</small></div></div><h3>Technical checks</h3><div class="checks">${checks.map(c=>`<div class="check ${c.passed?'':'fail'}">${esc(c.name)}<b>${c.passed?'Pass':'Review'}</b></div>`).join('')||'<p class="muted">No technical checks were available.</p>'}</div><div class="actions"><button id="summary-button" type="button">Summarize with AI</button></div><div id="ai-summary" class="finding hidden"></div>`}const errors=(r.errors||[]).map(e=>`<div class="finding error">${esc(e)}</div>`).join('');box.innerHTML=`<div class="result-head"><div><div class="eyebrow ${riskClass}">${esc(r.risk)}${r.cached?' · cached':''}</div><h2>${esc(r.url)}</h2><div class="timestamp">${r.cached?'Cached result':'Scanned'} · ${new Date(r.scanned_at).toLocaleString()}${r.cached?` · ${r.cache_age_seconds}s old`:''}</div></div>${!details?`<div class="score">Risk ${r.score}/100</div>`:''}</div>${detail}${findingHtml}${errors}<div class="actions">${r.saved_report_id?`<a class="button" href="/report.html?id=${encodeURIComponent(r.saved_report_id)}">Open detailed report</a>`:`<button class="secondary" id="save-report" type="button" ${r.cache_id?"":"disabled"}>${session?'Save detailed report':'Sign in with Google to save'}</button>`}<button class="secondary" id="copy-report" type="button">Copy summary</button></div>`;$('#copy-report').onclick=()=>navigator.clipboard?.writeText(`SecureX: ${r.risk} (${r.score}/100) ${r.url}`);const save=$('#save-report');if(save)save.onclick=async()=>{if(!r.cache_id){alert('Report saving is not configured yet.');return}if(!session){sessionStorage.setItem('securex_pending_save',JSON.stringify(r));if(sb)await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin}});else alert('Google sign-in is not configured yet.');return}try{const out=await req('/api/saved-reports',{cache_id:r.cache_id});r.saved_report_id=out.id;renderReport(box,r,details)}catch(e){alert(e.message)}};const ai=$('#summary-button');if(ai)ai.onclick=async()=>{ai.disabled=true;ai.textContent='Summarizing…';try{const out=await req(`/api/saved-reports/${encodeURIComponent(new URLSearchParams(location.search).get('id'))}/summary`,{});const el=$('#ai-summary');el.textContent=out.summary;el.classList.remove('hidden')}catch(e){alert(e.message)}finally{ai.disabled=false;ai.textContent='Summarize with AI'}}}
+if($('#scan-form'))$('#scan-form').addEventListener('submit',async e=>{e.preventDefault();const box=$('#result');box.classList.remove('hidden');box.innerHTML='<div class="loader"><div class="orbit" aria-hidden="true"></div><p>Checking URL, certificate, redirects, and security headers…</p><small>Some checks depend on the website’s response time.</small></div>';try{latest=await req('/api/scan',{url:$('#url').value});renderReport(box,latest)}catch(err){box.innerHTML=`<div class="error">${esc(err.message)}</div>`}});
+if($('#report-form'))$('#report-form').addEventListener('submit',async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{const out=await req('/api/reports',{url:f.get('url'),category:f.get('category'),note:f.get('note')});alert(out.message);e.currentTarget.reset()}catch(err){alert(err.message)}});
+async function reportPage(){const box=$('#report-detail');if(!box)return;try{const id=new URLSearchParams(location.search).get('id');if(!id)throw Error('Report ID missing.');const r=await req(`/api/saved-reports/${encodeURIComponent(id)}`,null,'GET');renderReport(box,r,true)}catch(e){box.innerHTML=`<div class="error">${esc(e.message)}</div>`}}
+async function reportsPage(){const box=$('#saved-reports');if(!box)return;if(!session){box.innerHTML='<p class="muted">Sign in with Google to view your private saved reports.</p>';return}try{const out=await req('/api/saved-reports',null,'GET');box.innerHTML=out.reports.map(r=>`<a class="saved-item" href="/report.html?id=${encodeURIComponent(r.id)}"><span>${esc(r.url)}<br><small>${new Date(r.created_at).toLocaleString()}</small></span><small>${esc(r.risk)} · ${r.score}/100</small></a>`).join('')||'<p class="muted">No saved reports yet.</p>'}catch(e){box.innerHTML=`<p class="error">${esc(e.message)}</p>`}}
+async function adminPage(){const box=$('#admin-data');if(!box)return;try{const d=await req('/api/admin/overview',null,'GET');box.innerHTML=`<h2>Saved reports</h2><pre>${esc(JSON.stringify(d.saved_reports,null,2))}</pre><h2>Community reports</h2><pre>${esc(JSON.stringify(d.community_reports,null,2))}</pre><h2>Cache entries</h2><pre>${esc(JSON.stringify(d.cache,null,2))}</pre>`}catch(e){box.innerHTML=`<p class="error">${esc(e.message)}</p>`}}
+initAuth().then(()=>{reportPage();reportsPage();adminPage()});

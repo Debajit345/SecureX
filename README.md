@@ -39,6 +39,16 @@ The API health endpoint is `/api/health`.
 
 The reports table has RLS enabled. The public key can read report signals without notes and submit category validated reports. Community reports are unverified and the UI says so.
 
+### SecureX accounts, saved reports, and AI
+
+1. Apply `supabase/migrations/20261108000000_securex_saved_reports.sql` after the community reports migration.
+2. In Supabase Auth, enable Google and configure the Google OAuth client ID/secret and redirect URLs for the Supabase callback and SecureX production/preview URLs.
+3. Set `SUPABASE_SERVICE_ROLE_KEY` as a server-only Vercel environment variable. Never expose it in frontend code. The API verifies Google/Supabase sessions before saving user history or returning private reports.
+4. After the administrator signs in with `debaxoid@gmail.com`, set that account's Supabase Auth UUID as `SECUREX_ADMIN_USER_ID` in Vercel. Admin endpoints compare the verified Auth ID; they do not trust UI state or a caller-provided email.
+5. Optionally configure `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` in Vercel to enable on-demand report summaries. The token stays server-side.
+
+Scan results are compressed and cached for 15 minutes. The shared cache contains technical scan evidence but no account owner or community notes. Saved report references are private and tied to the authenticated Supabase user. `/reports.html`, `/report.html?id=…`, and `/admin.html` provide report history, report details, and administrator data respectively.
+
 ## Vercel deployment
 
 Vercel detects the FastAPI application exported from `app.py`; `requirements.txt` is at the project root so its Python runtime can install the dependencies. Configure `SUPABASE_URL` and `SUPABASE_ANON_KEY` for production, preview, and development environments.
