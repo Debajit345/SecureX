@@ -119,7 +119,11 @@ def health():
 
 @app.get("/api/config")
 def public_config():
-    return {"url":os.getenv("SUPABASE_URL", ""),"anon_key":os.getenv("SUPABASE_ANON_KEY", "")}
+    return {
+        "url": os.getenv("SUPABASE_URL", ""),
+        "anon_key": os.getenv("SUPABASE_ANON_KEY", ""),
+        "ai_summary_enabled": bool(os.getenv("CLOUDFLARE_ACCOUNT_ID") and os.getenv("CLOUDFLARE_API_TOKEN")),
+    }
 
 @app.get("/api/auth/status")
 def auth_status():

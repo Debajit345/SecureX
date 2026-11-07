@@ -15,12 +15,12 @@ def db_request(method: str, table: str, *, params=None, payload=None, prefer=Non
     if params:
         url += "?" + urlencode(params)
     headers = {"apikey": key, "Content-Type": "application/json"}
-    # New Supabase secret keys are opaque API keys, not JWTs. Sending one as a
-    # Bearer token makes Supabase try to parse it as a JWT and reject the call.
-    # Keep Bearer auth for user JWTs and legacy service_role JWT keys.
+    # New publishable/secret keys are opaque API keys, not JWTs. Sending one as
+    # a Bearer token makes Supabase try to parse it as a JWT and reject the call.
+    # Keep Bearer auth for user JWTs and legacy anon/service_role JWT keys.
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    elif not (privileged and key.startswith("sb_secret_")):
+    elif not key.startswith(("sb_secret_", "sb_publishable_")):
         headers["Authorization"] = f"Bearer {key}"
     if prefer:
         headers["Prefer"] = prefer
